@@ -110,25 +110,11 @@ func main() {
 
 			switch e := event.(type) {
 			case webhook.MessageEvent:
-				var userID string
-				switch s := e.Source.(type) {
-				case *webhook.UserSource:
-					userID = s.UserId
-				case *webhook.GroupSource:
-					userID = s.UserId
-				case *webhook.RoomSource:
-					userID = s.UserId
-				}
-
-				if userID == "" {
-					log.Println("Cannot get UserID from the event. It might be a group chat where the user has not agreed to the terms.")
-					return
-				}
-
 				switch message := e.Message.(type) {
 				case webhook.TextMessageContent:
 					if message.Text == "/connect_drive" {
 						// Generate a random state string to prevent CSRF attacks
+						userID := e.Source.(webhook.UserSource).UserId
 						state := generateState()
 
 						// Store state and user ID in Firestore with a short expiration
@@ -196,7 +182,7 @@ func main() {
 						return
 					}
 					defer content.Body.Close()
-
+					userID := e.Source.(webhook.UserSource).UserId
 					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
@@ -246,7 +232,7 @@ func main() {
 						return
 					}
 					defer content.Body.Close()
-
+					userID := e.Source.(webhook.UserSource).UserId
 					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
@@ -296,7 +282,7 @@ func main() {
 						return
 					}
 					defer content.Body.Close()
-
+					userID := e.Source.(webhook.UserSource).UserId
 					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)

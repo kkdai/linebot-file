@@ -304,7 +304,12 @@ func generateStateOauthCookie(w http.ResponseWriter) string {
 }
 
 func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
-	oauthState, _ := r.Cookie("oauthstate")
+	oauthState, err := r.Cookie("oauthstate")
+	if err != nil {
+		log.Printf("missing oauthstate cookie: %v", err)
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		return
+	}
 
 	if r.FormValue("state") != oauthState.Value {
 		log.Printf("invalid oauth google state")

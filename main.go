@@ -62,8 +62,15 @@ func main() {
 	}
 
 	// Setup HTTP Server for receiving requests from LINE platform
-	http.HandleFunc("/callback", func(w http.ResponseWriter, req *http.Request) {
-		log.Println("/callback called...")
+	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		// The LINE Platform always POSTs to the webhook URL.
+		// We only handle requests to the root path.
+		if req.URL.Path != "/" {
+			http.NotFound(w, req)
+			return
+		}
+
+		log.Println("Webhook handler called...")
 
 		cb, err := webhook.ParseRequest(channelSecret, req)
 		if err != nil {
@@ -225,6 +232,7 @@ func main() {
 				log.Printf("Unsupported message: %T\n", event)
 			}
 		}
+		w.WriteHeader(http.StatusOK)
 	})
 
 	http.HandleFunc("/oauth/callback", oauthCallbackHandler)

@@ -1,4 +1,4 @@
-module github.com/kkdai/LineBotTemplate
+module github.com/kkdai/linebot-file
 
 // +heroku goVersion go1.21
 go 1.23.0

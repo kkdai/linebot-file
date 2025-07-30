@@ -22,25 +22,44 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/line/line-bot-sdk-go/v8/linebot/messaging_api"
 	"github.com/line/line-bot-sdk-go/v8/linebot/webhook"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
-	googleOauthConfig *oauth2.Config
-	// In-memory stores for state and tokens.
-	// TODO: For a production application, use a persistent database like Firestore or a relational DB.
-	stateStore             = make(map[string]string) // state -> userID
-	tokenStore             = make(map[string]*oauth2.Token) // userID -> token
+	googleOauthConfig      *oauth2.Config
+	firestoreClient        *firestore.Client
 	ErrOauth2TokenNotFound = errors.New("oauth2 token not found")
 )
 
+const (
+	stateCollection = "oauth_states"
+	tokenCollection = "user_tokens"
+)
+
 func main() {
+	ctx := context.Background()
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		log.Fatal("GOOGLE_CLOUD_PROJECT environment variable must be set.")
+	}
+
+	var err error
+	firestoreClient, err = firestore.NewClient(ctx, projectID)
+	if err != nil {
+		log.Fatalf("Failed to create Firestore client: %v", err)
+	}
+	defer firestoreClient.Close()
+
 	googleOauthConfig = &oauth2.Config{
 		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
@@ -111,7 +130,17 @@ func main() {
 						}
 						// Generate a random state string to prevent CSRF attacks
 						state := generateState()
-						stateStore[state] = userID
+
+						// Store state and user ID in Firestore with a short expiration
+						_, err := firestoreClient.Collection(stateCollection).Doc(state).Set(ctx, map[string]interface{}{
+							"user_id":    userID,
+							"created_at": time.Now(),
+						})
+						if err != nil {
+							log.Printf("Failed to save state to firestore: %v", err)
+							// Optionally reply to user about the error
+							return
+						}
 
 						// Generate authorization URL
 						url := googleOauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
@@ -361,15 +390,25 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	state := r.FormValue("state")
 	code := r.FormValue("code")
 
-	// 1. Validate state and get user ID
-	userID, ok := stateStore[state]
-	if !ok {
-		log.Printf("Invalid oauth google state: %s", state)
+	// 1. Validate state and get user ID from Firestore
+	doc, err := firestoreClient.Collection(stateCollection).Doc(state).Get(ctx)
+	if err != nil {
+		log.Printf("Invalid oauth google state: %s, error: %v", state, err)
 		http.Error(w, "Invalid state parameter. Please try again.", http.StatusBadRequest)
 		return
 	}
 	// Delete state after use to prevent replay attacks
-	delete(stateStore, state)
+	defer doc.Ref.Delete(ctx)
+
+	var stateData struct {
+		UserID string `firestore:"user_id"`
+	}
+	if err := doc.DataTo(&stateData); err != nil {
+		log.Printf("Failed to parse state data: %v", err)
+		http.Error(w, "Internal server error.", http.StatusInternalServerError)
+		return
+	}
+	userID := stateData.UserID
 
 	// 2. Exchange authorization code for a token
 	token, err := googleOauthConfig.Exchange(ctx, code)
@@ -379,19 +418,33 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Store the token in our in-memory store
-	tokenStore[userID] = token
+	// 3. Store the token in Firestore, using the userID as the document ID
+	_, err = firestoreClient.Collection(tokenCollection).Doc(userID).Set(ctx, token)
+	if err != nil {
+		log.Printf("Failed to save token to firestore: %v", err)
+		http.Error(w, "Failed to save token.", http.StatusInternalServerError)
+		return
+	}
 
 	log.Printf("Successfully saved token for user %s", userID)
 	fmt.Fprintf(w, "授權成功！您現在可以回到 LINE 傳送檔案了。")
 }
 
 func getGoogleDriveService(userID string) (*drive.Service, error) {
-	token, ok := tokenStore[userID]
-	if !ok {
-		return nil, ErrOauth2TokenNotFound
+	doc, err := firestoreClient.Collection(tokenCollection).Doc(userID).Get(context.Background())
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, ErrOauth2TokenNotFound
+		}
+		return nil, fmt.Errorf("failed to get token from firestore: %w", err)
 	}
-	return drive.NewService(context.Background(), option.WithTokenSource(googleOauthConfig.TokenSource(context.Background(), token)))
+
+	var token oauth2.Token
+	if err := doc.DataTo(&token); err != nil {
+		return nil, fmt.Errorf("failed to parse token data: %w", err)
+	}
+
+	return drive.NewService(context.Background(), option.WithTokenSource(googleOauthConfig.TokenSource(context.Background(), &token)))
 }
 
 func uploadToDrive(content io.Reader, filename string, userID string) (*drive.File, error) {

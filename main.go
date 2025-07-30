@@ -156,8 +156,18 @@ func main() {
 								&messaging_api.ReplyMessageRequest{
 									ReplyToken: e.ReplyToken,
 									Messages: []messaging_api.MessageInterface{
-										messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first by sending `/connect_drive`.",
+										&messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first.",
+											QuickReply: &messaging_api.QuickReply{
+												Items: []messaging_api.QuickReplyItem{
+													{
+														Action: &messaging_api.MessageAction{
+															Label: "Connect Google Drive",
+															Text:  "/connect_drive",
+														},
+													},
+												},
+											},
 										},
 									},
 								},
@@ -196,8 +206,18 @@ func main() {
 								&messaging_api.ReplyMessageRequest{
 									ReplyToken: e.ReplyToken,
 									Messages: []messaging_api.MessageInterface{
-										messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first by sending `/connect_drive`.",
+										&messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first.",
+											QuickReply: &messaging_api.QuickReply{
+												Items: []messaging_api.QuickReplyItem{
+													{
+														Action: &messaging_api.MessageAction{
+															Label: "Connect Google Drive",
+															Text:  "/connect_drive",
+														},
+													},
+												},
+											},
 										},
 									},
 								},
@@ -236,8 +256,18 @@ func main() {
 								&messaging_api.ReplyMessageRequest{
 									ReplyToken: e.ReplyToken,
 									Messages: []messaging_api.MessageInterface{
-										messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first by sending `/connect_drive`.",
+										&messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first.",
+											QuickReply: &messaging_api.QuickReply{
+												Items: []messaging_api.QuickReplyItem{
+													{
+														Action: &messaging_api.MessageAction{
+															Label: "Connect Google Drive",
+															Text:  "/connect_drive",
+														},
+													},
+												},
+											},
 										},
 									},
 								},

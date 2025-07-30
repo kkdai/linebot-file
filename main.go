@@ -35,7 +35,8 @@ import (
 var (
 	googleOauthConfig *oauth2.Config
 	// TODO: This should be stored in a database.
-	oauth2Token *oauth2.Token
+	oauth2Token            *oauth2.Token
+	ErrOauth2TokenNotFound = errors.New("oauth2 token not found")
 )
 
 func main() {
@@ -150,6 +151,20 @@ func main() {
 					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
+						if errors.Is(err, ErrOauth2TokenNotFound) {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first by sending `/connect_drive`.",
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+						}
 						return
 					}
 
@@ -176,6 +191,20 @@ func main() {
 					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
+						if errors.Is(err, ErrOauth2TokenNotFound) {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first by sending `/connect_drive`.",
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+						}
 						return
 					}
 
@@ -202,6 +231,20 @@ func main() {
 					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
+						if errors.Is(err, ErrOauth2TokenNotFound) {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first by sending `/connect_drive`.",
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+						}
 						return
 					}
 
@@ -285,7 +328,7 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 func getGoogleDriveService() (*drive.Service, error) {
 	if oauth2Token == nil {
-		return nil, errors.New("oauth2 token not found")
+		return nil, ErrOauth2TokenNotFound
 	}
 	return drive.NewService(context.Background(), option.WithTokenSource(googleOauthConfig.TokenSource(context.Background(), oauth2Token)))
 }

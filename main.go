@@ -22,7 +22,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/line/line-bot-sdk-go/v8/linebot/messaging_api"
 	"github.com/line/line-bot-sdk-go/v8/linebot/webhook"
@@ -34,8 +33,10 @@ import (
 
 var (
 	googleOauthConfig *oauth2.Config
-	// TODO: This should be stored in a database.
-	oauth2Token            *oauth2.Token
+	// In-memory stores for state and tokens.
+	// TODO: For a production application, use a persistent database like Firestore or a relational DB.
+	stateStore             = make(map[string]string) // state -> userID
+	tokenStore             = make(map[string]*oauth2.Token) // userID -> token
 	ErrOauth2TokenNotFound = errors.New("oauth2 token not found")
 )
 
@@ -90,16 +91,35 @@ func main() {
 
 			switch e := event.(type) {
 			case webhook.MessageEvent:
+				var userID string
+				switch s := e.Source.(type) {
+				case *webhook.UserSource:
+					userID = s.UserId
+				case *webhook.GroupSource:
+					userID = s.UserId
+				case *webhook.RoomSource:
+					userID = s.UserId
+				}
+
 				switch message := e.Message.(type) {
 				case webhook.TextMessageContent:
 					if message.Text == "/connect_drive" {
-						state := generateStateOauthCookie(w)
+						if userID == "" {
+							log.Println("Cannot get UserID from the event.")
+							// Handle cases where user ID might be missing
+							return
+						}
+						// Generate a random state string to prevent CSRF attacks
+						state := generateState()
+						stateStore[state] = userID
+
+						// Generate authorization URL
 						url := googleOauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 						if _, err = bot.ReplyMessage(
 							&messaging_api.ReplyMessageRequest{
 								ReplyToken: e.ReplyToken,
 								Messages: []messaging_api.MessageInterface{
-									messaging_api.TextMessage{
+									&messaging_api.TextMessage{
 										Text: "Please authorize this app to upload files to your Google Drive: " + url,
 									},
 								},
@@ -114,7 +134,7 @@ func main() {
 						&messaging_api.ReplyMessageRequest{
 							ReplyToken: e.ReplyToken,
 							Messages: []messaging_api.MessageInterface{
-								messaging_api.TextMessage{
+								&messaging_api.TextMessage{
 									Text: message.Text,
 								},
 							},
@@ -131,7 +151,7 @@ func main() {
 						&messaging_api.ReplyMessageRequest{
 							ReplyToken: e.ReplyToken,
 							Messages: []messaging_api.MessageInterface{
-								messaging_api.TextMessage{
+								&messaging_api.TextMessage{
 									Text: replyMessage,
 								},
 							},
@@ -148,7 +168,7 @@ func main() {
 					}
 					defer content.Body.Close()
 
-					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id)
+					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
 						if errors.Is(err, ErrOauth2TokenNotFound) {
@@ -182,7 +202,7 @@ func main() {
 						&messaging_api.ReplyMessageRequest{
 							ReplyToken: e.ReplyToken,
 							Messages: []messaging_api.MessageInterface{
-								messaging_api.TextMessage{
+								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
 								},
 							},
@@ -198,7 +218,7 @@ func main() {
 					}
 					defer content.Body.Close()
 
-					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id)
+					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
 						if errors.Is(err, ErrOauth2TokenNotFound) {
@@ -232,7 +252,7 @@ func main() {
 						&messaging_api.ReplyMessageRequest{
 							ReplyToken: e.ReplyToken,
 							Messages: []messaging_api.MessageInterface{
-								messaging_api.TextMessage{
+								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
 								},
 							},
@@ -248,7 +268,7 @@ func main() {
 					}
 					defer content.Body.Close()
 
-					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id)
+					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
 					if err != nil {
 						log.Printf("Failed to upload to drive: %v", err)
 						if errors.Is(err, ErrOauth2TokenNotFound) {
@@ -282,7 +302,7 @@ func main() {
 						&messaging_api.ReplyMessageRequest{
 							ReplyToken: e.ReplyToken,
 							Messages: []messaging_api.MessageInterface{
-								messaging_api.TextMessage{
+								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
 								},
 							},
@@ -291,13 +311,21 @@ func main() {
 						log.Print(err)
 					}
 				case webhook.MemberJoinedEvent:
-					log.Printf("Member joined: %s\n", e.Source.(webhook.UserSource).UserId)
+					if s, ok := e.Source.(*webhook.GroupSource); ok {
+						log.Printf("Member joined: %s\n", s.UserId)
+					}
 				case webhook.MemberLeftEvent:
-					log.Printf("Member joined: %s\n", e.Source.(webhook.UserSource).UserId)
+					if s, ok := e.Source.(*webhook.GroupSource); ok {
+						log.Printf("Member left: %s\n", s.UserId)
+					}
 				case webhook.FollowEvent:
-					log.Printf("Follow event: %s\n", e.Source.(webhook.UserSource).UserId)
+					if s, ok := e.Source.(*webhook.UserSource); ok {
+						log.Printf("Follow event: %s\n", s.UserId)
+					}
 				case webhook.BeaconEvent:
-					log.Printf("Beacon event: %s\n", e.Source.(webhook.UserSource).UserId)
+					if s, ok := e.Source.(*webhook.UserSource); ok {
+						log.Printf("Beacon event: %s\n", s.UserId)
+					}
 				default:
 					log.Printf("Unsupported message content: %T\n", e.Message)
 				}
@@ -322,62 +350,52 @@ func main() {
 	}
 }
 
-func generateStateOauthCookie(w http.ResponseWriter) string {
-	var expiration = time.Now().Add(20 * time.Minute)
+func generateState() string {
 	b := make([]byte, 16)
 	rand.Read(b)
-	state := base64.URLEncoding.EncodeToString(b)
-	cookie := http.Cookie{
-		Name:     "oauthstate",
-		Value:    state,
-		Expires:  expiration,
-		HttpOnly: true,
-		Secure:   true,
-		Path:     "/",
-		SameSite: http.SameSiteLaxMode,
-	}
-	http.SetCookie(w, &cookie)
-
-	return state
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
-	oauthState, err := r.Cookie("oauthstate")
+	ctx := context.Background()
+	state := r.FormValue("state")
+	code := r.FormValue("code")
+
+	// 1. Validate state and get user ID
+	userID, ok := stateStore[state]
+	if !ok {
+		log.Printf("Invalid oauth google state: %s", state)
+		http.Error(w, "Invalid state parameter. Please try again.", http.StatusBadRequest)
+		return
+	}
+	// Delete state after use to prevent replay attacks
+	delete(stateStore, state)
+
+	// 2. Exchange authorization code for a token
+	token, err := googleOauthConfig.Exchange(ctx, code)
 	if err != nil {
-		log.Printf("missing oauthstate cookie: %v", err)
-		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		log.Printf("Failed to exchange token: %v", err)
+		http.Error(w, "Failed to exchange token.", http.StatusInternalServerError)
 		return
 	}
 
-	if r.FormValue("state") != oauthState.Value {
-		log.Printf("invalid oauth google state")
-		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
-		return
-	}
+	// 3. Store the token in our in-memory store
+	tokenStore[userID] = token
 
-	token, err := googleOauthConfig.Exchange(context.Background(), r.FormValue("code"))
-	if err != nil {
-		log.Printf("failed to exchange token: %v", err)
-		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
-		return
-	}
-	oauth2Token = token
-
-	// In a real-world app, you would store the token in a database.
-	// For this example, we'll just log that it was successful.
-	log.Println("Successfully authenticated with Google")
-	w.Write([]byte("Successfully authenticated with Google. You can close this window."))
+	log.Printf("Successfully saved token for user %s", userID)
+	fmt.Fprintf(w, "授權成功！您現在可以回到 LINE 傳送檔案了。")
 }
 
-func getGoogleDriveService() (*drive.Service, error) {
-	if oauth2Token == nil {
+func getGoogleDriveService(userID string) (*drive.Service, error) {
+	token, ok := tokenStore[userID]
+	if !ok {
 		return nil, ErrOauth2TokenNotFound
 	}
-	return drive.NewService(context.Background(), option.WithTokenSource(googleOauthConfig.TokenSource(context.Background(), oauth2Token)))
+	return drive.NewService(context.Background(), option.WithTokenSource(googleOauthConfig.TokenSource(context.Background(), token)))
 }
 
-func uploadToDrive(content io.Reader, filename string) (*drive.File, error) {
-	srv, err := getGoogleDriveService()
+func uploadToDrive(content io.Reader, filename string, userID string) (*drive.File, error) {
+	srv, err := getGoogleDriveService(userID)
 	if err != nil {
 		return nil, err
 	}

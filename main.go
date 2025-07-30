@@ -94,7 +94,7 @@ func main() {
 				case webhook.TextMessageContent:
 					if message.Text == "/connect_drive" {
 						state := generateStateOauthCookie(w)
-						url := googleOauthConfig.AuthCodeURL(state)
+						url := googleOauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 						if _, err = bot.ReplyMessage(
 							&messaging_api.ReplyMessageRequest{
 								ReplyToken: e.ReplyToken,

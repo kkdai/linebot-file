@@ -36,12 +36,9 @@ var (
 	googleOauthConfig *oauth2.Config
 	// TODO: This should be stored in a database.
 	oauth2Token *oauth2.Token
-	// TODO: This should be a user-configurable value.
-	googleDriveFolderID = ""
 )
 
 func main() {
-	googleDriveFolderID = os.Getenv("GOOGLE_DRIVE_FOLDER_ID")
 	googleOauthConfig = &oauth2.Config{
 		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
@@ -292,8 +289,7 @@ func uploadToDrive(content io.Reader, filename string) (*drive.File, error) {
 	}
 
 	file := &drive.File{
-		Name:    filename,
-		Parents: []string{googleDriveFolderID},
+		Name: filename,
 	}
 
 	return srv.Files.Create(file).Media(content).Do()

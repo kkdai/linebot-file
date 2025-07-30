@@ -120,14 +120,14 @@ func main() {
 					userID = s.UserId
 				}
 
+				if userID == "" {
+					log.Println("Cannot get UserID from the event. It might be a group chat where the user has not agreed to the terms.")
+					return
+				}
+
 				switch message := e.Message.(type) {
 				case webhook.TextMessageContent:
 					if message.Text == "/connect_drive" {
-						if userID == "" {
-							log.Println("Cannot get UserID from the event.")
-							// Handle cases where user ID might be missing
-							return
-						}
 						// Generate a random state string to prevent CSRF attacks
 						state := generateState()
 

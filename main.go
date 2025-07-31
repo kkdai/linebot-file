@@ -325,6 +325,56 @@ func main() {
 					); err != nil {
 						log.Print(err)
 					}
+				case webhook.FileMessageContent:
+					content, err := blob.GetMessageContent(message.Id)
+					if err != nil {
+						log.Printf("Failed to get message content: %v", err)
+						return
+					}
+					defer content.Body.Close()
+					userID := e.Source.(webhook.UserSource).UserId
+					file, err := uploadToDrive(content.Body, message.FileName, userID)
+					if err != nil {
+						log.Printf("Failed to upload to drive: %v", err)
+						if errors.Is(err, ErrOauth2TokenNotFound) {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										&messaging_api.TextMessage{
+											Text: "Please connect your Google Drive account first.",
+											QuickReply: &messaging_api.QuickReply{
+												Items: []messaging_api.QuickReplyItem{
+													{
+														Action: &messaging_api.MessageAction{
+															Label: "Connect Google Drive",
+															Text:  "/connect_drive",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+						}
+						return
+					}
+
+					if _, err = bot.ReplyMessage(
+						&messaging_api.ReplyMessageRequest{
+							ReplyToken: e.ReplyToken,
+							Messages: []messaging_api.MessageInterface{
+								&messaging_api.TextMessage{
+									Text: "File uploaded to Google Drive: " + file.WebViewLink,
+								},
+							},
+						},
+					); err != nil {
+						log.Print(err)
+					}
 				case webhook.MemberJoinedEvent:
 					if s, ok := e.Source.(*webhook.GroupSource); ok {
 						log.Printf("Member joined: %s\n", s.UserId)

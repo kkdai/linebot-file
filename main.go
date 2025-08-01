@@ -333,6 +333,16 @@ func main() {
 							Messages: []messaging_api.MessageInterface{
 								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
+									QuickReply: &messaging_api.QuickReply{
+										Items: []messaging_api.QuickReplyItem{
+											{
+												Action: &messaging_api.MessageAction{
+													Label: "查詢最近檔案",
+													Text:  "/recent_files",
+												},
+											},
+										},
+									},
 								},
 							},
 						},
@@ -383,6 +393,16 @@ func main() {
 							Messages: []messaging_api.MessageInterface{
 								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
+									QuickReply: &messaging_api.QuickReply{
+										Items: []messaging_api.QuickReplyItem{
+											{
+												Action: &messaging_api.MessageAction{
+													Label: "查詢最近檔案",
+													Text:  "/recent_files",
+												},
+											},
+										},
+									},
 								},
 							},
 						},
@@ -433,6 +453,16 @@ func main() {
 							Messages: []messaging_api.MessageInterface{
 								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
+									QuickReply: &messaging_api.QuickReply{
+										Items: []messaging_api.QuickReplyItem{
+											{
+												Action: &messaging_api.MessageAction{
+													Label: "查詢最近檔案",
+													Text:  "/recent_files",
+												},
+											},
+										},
+									},
 								},
 							},
 						},
@@ -483,6 +513,16 @@ func main() {
 							Messages: []messaging_api.MessageInterface{
 								&messaging_api.TextMessage{
 									Text: "File uploaded to Google Drive: " + file.WebViewLink,
+									QuickReply: &messaging_api.QuickReply{
+										Items: []messaging_api.QuickReplyItem{
+											{
+												Action: &messaging_api.MessageAction{
+													Label: "查詢最近檔案",
+													Text:  "/recent_files",
+												},
+											},
+										},
+									},
 								},
 							},
 						},

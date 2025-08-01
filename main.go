@@ -257,6 +257,34 @@ func main() {
 							log.Print(err)
 						}
 						return
+					} else if message.Text == "/disconnect_drive" {
+						userID := e.Source.(webhook.UserSource).UserId
+						err := revokeGoogleToken(ctx, userID)
+						var replyText string
+						if err != nil {
+							if errors.Is(err, ErrOauth2TokenNotFound) {
+								replyText = "Your account is not connected to Google Drive."
+							} else {
+								replyText = "An error occurred while disconnecting. Please try again later."
+								log.Printf("Failed to revoke token for user %s: %v", userID, err)
+							}
+						} else {
+							replyText = "Successfully disconnected from Google Drive."
+						}
+
+						if _, err = bot.ReplyMessage(
+							&messaging_api.ReplyMessageRequest{
+								ReplyToken: e.ReplyToken,
+								Messages: []messaging_api.MessageInterface{
+									&messaging_api.TextMessage{
+										Text: replyText,
+									},
+								},
+							},
+						); err != nil {
+							log.Print(err)
+						}
+						return
 					}
 
 					if _, err = bot.ReplyMessage(
@@ -716,4 +744,50 @@ func getRecentFiles(srv *drive.Service, count int64) ([]*drive.File, error) {
 	}
 
 	return r.Files, nil
+}
+
+func revokeGoogleToken(ctx context.Context, userID string) error {
+	// 1. Get token from Firestore
+	docRef := firestoreClient.Collection(tokenCollection).Doc(userID)
+	doc, err := docRef.Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return ErrOauth2TokenNotFound
+		}
+		return fmt.Errorf("failed to get token from firestore: %w", err)
+	}
+
+	var token oauth2.Token
+	if err := doc.DataTo(&token); err != nil {
+		return fmt.Errorf("failed to parse token data: %w", err)
+	}
+
+	// Token to revoke - prefer refresh token as it invalidates all derived access tokens
+	tokenToRevoke := token.AccessToken
+	if token.RefreshToken != "" {
+		tokenToRevoke = token.RefreshToken
+	}
+
+	// 2. Revoke token with Google
+	revokeURL := "https://oauth2.googleapis.com/revoke?token=" + tokenToRevoke
+	resp, err := http.Post(revokeURL, "application/x-www-form-urlencoded", nil)
+	if err != nil {
+		return fmt.Errorf("failed to send revocation request to google: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		// Log the error but don't block deletion from our side
+		log.Printf("Google revocation failed for user %s with status %d: %s", userID, resp.StatusCode, string(body))
+	}
+
+	// 3. Delete token from Firestore regardless of revocation status
+	if _, err := docRef.Delete(ctx); err != nil {
+		log.Printf("CRITICAL: Failed to delete token for user %s from Firestore after revocation attempt: %v", userID, err)
+		return fmt.Errorf("failed to delete token from firestore: %w", err)
+	}
+
+	log.Printf("Successfully revoked and/or deleted token for user %s", userID)
+	return nil
 }

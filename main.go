@@ -143,6 +143,120 @@ func main() {
 							log.Print(err)
 						}
 						return
+					} else if message.Text == "/recent_files" {
+						userID := e.Source.(webhook.UserSource).UserId
+						srv, err := getGoogleDriveService(userID)
+						if err != nil {
+							// Handle not connected error
+							if errors.Is(err, ErrOauth2TokenNotFound) {
+								if _, err = bot.ReplyMessage(
+									&messaging_api.ReplyMessageRequest{
+										ReplyToken: e.ReplyToken,
+										Messages: []messaging_api.MessageInterface{
+											&messaging_api.TextMessage{
+												Text: "Please connect your Google Drive account first.",
+												QuickReply: &messaging_api.QuickReply{
+													Items: []messaging_api.QuickReplyItem{
+														{
+															Action: &messaging_api.MessageAction{
+																Label: "Connect Google Drive",
+																Text:  "/connect_drive",
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								); err != nil {
+									log.Print(err)
+								}
+							} else {
+								log.Printf("Failed to get drive service: %v", err)
+							}
+							return
+						}
+
+						files, err := getRecentFiles(srv, 5)
+						if err != nil {
+							log.Printf("Failed to get recent files: %v", err)
+							// Optionally reply with an error message
+							return
+						}
+
+						if len(files) == 0 {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										&messaging_api.TextMessage{
+											Text: "You haven't uploaded any files yet.",
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+							return
+						}
+
+						var bubbles []messaging_api.FlexBubble
+						for _, file := range files {
+							bubble := messaging_api.FlexBubble{
+								Body: &messaging_api.FlexBox{
+									Layout: "vertical",
+									Contents: []messaging_api.FlexComponentInterface{
+										&messaging_api.FlexText{
+											Text:   "Recent Upload",
+											Weight: "bold",
+											Size:   "sm",
+											Color:  "#1DB446",
+										},
+										&messaging_api.FlexText{
+											Text:   file.Name,
+											Weight: "bold",
+											Size:   "xl",
+											Margin: "md",
+											Wrap:   true,
+										},
+									},
+								},
+								Footer: &messaging_api.FlexBox{
+									Layout:  "vertical",
+									Spacing: "sm",
+									Contents: []messaging_api.FlexComponentInterface{
+										&messaging_api.FlexButton{
+											Style:  "link",
+											Height: "sm",
+											Action: &messaging_api.UriAction{
+												Label: "Open in Drive",
+												Uri:   file.WebViewLink,
+											},
+										},
+									},
+								},
+							}
+							bubbles = append(bubbles, bubble)
+						}
+
+						carousel := &messaging_api.FlexCarousel{
+							Contents: bubbles,
+						}
+
+						if _, err = bot.ReplyMessage(
+							&messaging_api.ReplyMessageRequest{
+								ReplyToken: e.ReplyToken,
+								Messages: []messaging_api.MessageInterface{
+									&messaging_api.FlexMessage{
+										AltText:  "Here are your recent files",
+										Contents: carousel,
+									},
+								},
+							},
+						); err != nil {
+							log.Print(err)
+						}
+						return
 					}
 
 					if _, err = bot.ReplyMessage(
@@ -538,4 +652,28 @@ func findOrCreateFolder(srv *drive.Service, name string, parentID string) (strin
 	}
 
 	return createdFolder.Id, nil
+}
+
+func getRecentFiles(srv *drive.Service, count int64) ([]*drive.File, error) {
+	// First, find the main folder. If it doesn't exist, there are no files to list.
+	mainFolderID, err := findOrCreateFolder(srv, "LINE Bot Uploads", "root")
+	if err != nil {
+		// If findOrCreateFolder returns an error, we wrap it.
+		return nil, fmt.Errorf("could not find or create the main upload folder: %w", err)
+	}
+
+	// Search for files within the main folder, ordering by creation date.
+	query := fmt.Sprintf("'%s' in parents and trashed=false", mainFolderID)
+	r, err := srv.Files.List().
+		Q(query).
+		PageSize(count).
+		OrderBy("createdTime desc").
+		Fields("files(id, name, webViewLink)").
+		Do()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve files: %w", err)
+	}
+
+	return r.Files, nil
 }

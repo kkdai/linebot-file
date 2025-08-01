@@ -489,9 +489,53 @@ func uploadToDrive(content io.Reader, filename string, userID string) (*drive.Fi
 		return nil, err
 	}
 
+	// 1. Find or create the main folder "LINE Bot Uploads"
+	mainFolderID, err := findOrCreateFolder(srv, "LINE Bot Uploads", "root")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find or create main folder: %w", err)
+	}
+
+	// 2. Find or create the subfolder for the current month "YYYY-MM"
+	monthFolderName := time.Now().Format("2006-01")
+	monthFolderID, err := findOrCreateFolder(srv, monthFolderName, mainFolderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find or create month subfolder: %w", err)
+	}
+
+	// 3. Upload the file to the month-specific subfolder
 	file := &drive.File{
-		Name: filename,
+		Name:    filename,
+		Parents: []string{monthFolderID},
 	}
 
 	return srv.Files.Create(file).Media(content).Do()
+}
+
+// findOrCreateFolder searches for a folder with a given name and parent.
+// If not found, it creates the folder. It returns the folder ID.
+func findOrCreateFolder(srv *drive.Service, name string, parentID string) (string, error) {
+	query := fmt.Sprintf("mimeType='application/vnd.google-apps.folder' and trashed=false and name='%s' and '%s' in parents", name, parentID)
+	r, err := srv.Files.List().Q(query).PageSize(1).Fields("files(id)").Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to search for folder '%s': %w", name, err)
+	}
+
+	if len(r.Files) > 0 {
+		// Folder found
+		return r.Files[0].Id, nil
+	}
+
+	// Folder not found, create it
+	folder := &drive.File{
+		Name:     name,
+		MimeType: "application/vnd.google-apps.folder",
+		Parents:  []string{parentID},
+	}
+
+	createdFolder, err := srv.Files.Create(folder).Fields("id").Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to create folder '%s': %w", name, err)
+	}
+
+	return createdFolder.Id, nil
 }

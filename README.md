@@ -53,7 +53,92 @@
     *   **此步驟先不要填寫 Authorized redirect URIs**，我們先留空，等 Cloud Run 部署完成後再回來設定。
     *   建立後，您會得到一組 **Client ID** 和 **Client Secret**。請妥善保管，稍後會用到。
 
-4.  **部署到 Cloud Run**
+4.  **設定 LINE Rich Menu (重要)**
+
+    為了提供最佳使用者體驗，本專案使用 Rich Menu 來引導使用者操作。您需要手動建立並上傳對應的圖片。
+
+    **a. 建立 Rich Menu 物件**
+
+    執行以下兩個 `curl` 指令來建立選單的「骨架」。請將 `{YOUR_CHANNEL_ACCESS_TOKEN}` 替換成您自己的 Channel Access Token。
+
+    *   **建立「尚未連線」選單:**
+        ```bash
+        curl -s -X POST https://api.line.me/v2/bot/richmenu \
+        -H 'Authorization: Bearer {YOUR_CHANNEL_ACCESS_TOKEN}' \
+        -H 'Content-Type: application/json' \
+        -d '{
+            "size": { "width": 2500, "height": 1686 },
+            "selected": false,
+            "name": "Connect Menu",
+            "chatBarText": "點我開始",
+            "areas": [
+              {
+                "bounds": { "x": 0, "y": 0, "width": 2500, "height": 1686 },
+                "action": { "type": "message", "text": "/connect_drive" }
+              }
+           ]
+        }'
+        ```
+        執行後會回傳一個 JSON，請**複製 `richMenuId` 的值** (例如 `richmenu-xxxxxxxx...`)。
+
+    *   **建立「已連線」選單:**
+        ```bash
+        curl -s -X POST https://api.line.me/v2/bot/richmenu \
+        -H 'Authorization: Bearer {YOUR_CHANNEL_ACCESS_TOKEN}' \
+        -H 'Content-Type: application/json' \
+        -d '{
+            "size": { "width": 2500, "height": 1686 },
+            "selected": false,
+            "name": "Main Menu",
+            "chatBarText": "功能選單",
+            "areas": [
+              {
+                "bounds": { "x": 0, "y": 0, "width": 1250, "height": 1686 },
+                "action": { "type": "message", "text": "/recent_files" }
+              },
+              {
+                "bounds": { "x": 1250, "y": 0, "width": 1250, "height": 1686 },
+                "action": { "type": "message", "text": "/disconnect_drive" }
+              }
+           ]
+        }'
+        ```
+        同樣地，**複製這個 `richMenuId` 的值**。
+
+    **b. 準備並上傳圖片**
+
+    *   準備兩張符合 Rich Menu 設計的圖片 (JPG 或 PNG 格式)，尺寸必須為 **2500x1686** 像素，且檔案大小**小於 1MB**。
+    *   執行以下指令來上傳圖片，請將 `{YOUR_CHANNEL_ACCESS_TOKEN}`、`{RICH_MENU_ID_FOR_CONNECT}`、`{PATH_TO_CONNECT_IMAGE}` 等替換為您的實際資料。
+
+    *   **上傳「尚未連線」圖片:**
+        ```bash
+        curl -v -X POST https://api-data.line.me/v2/bot/richmenu/{RICH_MENU_ID_FOR_CONNECT}/content \
+        -H "Authorization: Bearer {YOUR_CHANNEL_ACCESS_TOKEN}" \
+        -H "Content-Type: image/png" \
+        -T {PATH_TO_CONNECT_IMAGE}
+        ```
+
+    *   **上傳「已連線」圖片:**
+        ```bash
+        curl -v -X POST https://api-data.line.me/v2/bot/richmenu/{RICH_MENU_ID_FOR_MAIN}/content \
+        -H "Authorization: Bearer {YOUR_CHANNEL_ACCESS_TOKEN}" \
+        -H "Content-Type: image/png" \
+        -T {PATH_TO_MAIN_MENU_IMAGE}
+        ```
+
+    **c. 更新原始碼**
+
+    *   打開 `main.go` 檔案。
+    *   找到頂部的 `const` 區塊，將您剛剛取得的兩個 `richMenuId` 填入對應的常數中：
+        ```go
+        const (
+            // ...
+            richMenuConnect = "richmenu-xxxxxxxx..." // 填入您「尚未連線」選單的 ID
+            richMenuMain    = "richmenu-yyyyyyyy..." // 填入您「已連線」選單的 ID
+        )
+        ```
+
+5.  **部署到 Cloud Run**
 
     將此專案的程式碼 clone 到您的本地環境，然後在專案根目錄下執行以下指令：
 
@@ -76,16 +161,17 @@
     *   `YOUR_...`: 請替換成您自己的金鑰和憑證。
     *   `GOOGLE_REDIRECT_URL`: **此處先隨意填寫一個臨時網址**，例如 `https://temp.com`。
 
-5.  **設定 Webhook 和 Redirect URI**
+6.  **設定 Webhook 和 Redirect URI**
 
     *   部署完成後，Cloud Run 會提供給您一個服務 **URL** (例如 `https://linebot-file-service-xxxxxxxx-an.a.run.app`)。
     *   **更新 LINE Webhook**：前往 [LINE Developers Console](https://developers.line.biz/)，在您的 Bot 頻道設定中，將 `Webhook URL` 設為您的 Cloud Run 服務 URL。
     *   **更新 Google OAuth Redirect URI**：回到步驟 3 的憑證頁面，點擊您建立的 Web application 憑證進行編輯。在 **Authorized redirect URIs** 中，加入 `YOUR_CLOUD_RUN_URL/oauth/callback` (例如 `https://linebot-file-service-xxxxxxxx-an.a.run.app/oauth/callback`)。
-    *   **重新部署 Cloud Run**：執行一次步驟 4 的 `gcloud run deploy` 指令，這次將 `GOOGLE_REDIRECT_URL` 的值更新為**正確的 Cloud Run 回呼網址**。
+    *   **重新部署 Cloud Run**：執行一次步驟 5 的 `gcloud run deploy` 指令，這次將 `GOOGLE_REDIRECT_URL` 的值更新為**正確的 Cloud Run 回呼網址**。
 
 至此，您的 LINE Bot 已成功部署並在雲端運行！
 
 ## 📜 License
+
 
 本專案採用 [Apache License 2.0](LICENSE)。
 

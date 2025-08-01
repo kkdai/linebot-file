@@ -250,6 +250,22 @@ func main() {
 									&messaging_api.FlexMessage{
 										AltText:  "Here are your recent files",
 										Contents: carousel,
+										QuickReply: &messaging_api.QuickReply{
+											Items: []messaging_api.QuickReplyItem{
+												{
+													Action: &messaging_api.MessageAction{
+														Label: "查詢最近檔案",
+														Text:  "/recent_files",
+													},
+												},
+												{
+													Action: &messaging_api.MessageAction{
+														Label: "中斷連線",
+														Text:  "/disconnect_drive",
+													},
+												},
+											},
+										},
 									},
 								},
 							},
@@ -594,6 +610,12 @@ func sendUploadSuccessReply(bot *messaging_api.MessagingApiAPI, replyToken, file
 								Action: &messaging_api.MessageAction{
 									Label: "查詢最近檔案",
 									Text:  "/recent_files",
+								},
+							},
+							{
+								Action: &messaging_api.MessageAction{
+									Label: "中斷連線",
+									Text:  "/disconnect_drive",
 								},
 							},
 						},

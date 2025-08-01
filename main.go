@@ -318,245 +318,13 @@ func main() {
 						log.Println("Sent sticker reply.")
 					}
 				case webhook.ImageMessageContent:
-					content, err := blob.GetMessageContent(message.Id)
-					if err != nil {
-						log.Printf("Failed to get message content: %v", err)
-						return
-					}
-					defer content.Body.Close()
-					userID := e.Source.(webhook.UserSource).UserId
-					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
-					if err != nil {
-						log.Printf("Failed to upload to drive: %v", err)
-						if errors.Is(err, ErrOauth2TokenNotFound) {
-							if _, err = bot.ReplyMessage(
-								&messaging_api.ReplyMessageRequest{
-									ReplyToken: e.ReplyToken,
-									Messages: []messaging_api.MessageInterface{
-										&messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first.",
-											QuickReply: &messaging_api.QuickReply{
-												Items: []messaging_api.QuickReplyItem{
-													{
-														Action: &messaging_api.MessageAction{
-															Label: "Connect Google Drive",
-															Text:  "/connect_drive",
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							); err != nil {
-								log.Print(err)
-							}
-						}
-						return
-					}
-
-					if _, err = bot.ReplyMessage(
-						&messaging_api.ReplyMessageRequest{
-							ReplyToken: e.ReplyToken,
-							Messages: []messaging_api.MessageInterface{
-								&messaging_api.TextMessage{
-									Text: "File uploaded to Google Drive: " + file.WebViewLink,
-									QuickReply: &messaging_api.QuickReply{
-										Items: []messaging_api.QuickReplyItem{
-											{
-												Action: &messaging_api.MessageAction{
-													Label: "查詢最近檔案",
-													Text:  "/recent_files",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					); err != nil {
-						log.Print(err)
-					}
+					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".jpg")
 				case webhook.VideoMessageContent:
-					content, err := blob.GetMessageContent(message.Id)
-					if err != nil {
-						log.Printf("Failed to get message content: %v", err)
-						return
-					}
-					defer content.Body.Close()
-					userID := e.Source.(webhook.UserSource).UserId
-					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
-					if err != nil {
-						log.Printf("Failed to upload to drive: %v", err)
-						if errors.Is(err, ErrOauth2TokenNotFound) {
-							if _, err = bot.ReplyMessage(
-								&messaging_api.ReplyMessageRequest{
-									ReplyToken: e.ReplyToken,
-									Messages: []messaging_api.MessageInterface{
-										&messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first.",
-											QuickReply: &messaging_api.QuickReply{
-												Items: []messaging_api.QuickReplyItem{
-													{
-														Action: &messaging_api.MessageAction{
-															Label: "Connect Google Drive",
-															Text:  "/connect_drive",
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							); err != nil {
-								log.Print(err)
-							}
-						}
-						return
-					}
-
-					if _, err = bot.ReplyMessage(
-						&messaging_api.ReplyMessageRequest{
-							ReplyToken: e.ReplyToken,
-							Messages: []messaging_api.MessageInterface{
-								&messaging_api.TextMessage{
-									Text: "File uploaded to Google Drive: " + file.WebViewLink,
-									QuickReply: &messaging_api.QuickReply{
-										Items: []messaging_api.QuickReplyItem{
-											{
-												Action: &messaging_api.MessageAction{
-													Label: "查詢最近檔案",
-													Text:  "/recent_files",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					); err != nil {
-						log.Print(err)
-					}
+					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".mp4")
 				case webhook.AudioMessageContent:
-					content, err := blob.GetMessageContent(message.Id)
-					if err != nil {
-						log.Printf("Failed to get message content: %v", err)
-						return
-					}
-					defer content.Body.Close()
-					userID := e.Source.(webhook.UserSource).UserId
-					file, err := uploadToDrive(content.Body, "line-bot-upload-"+message.Id, userID)
-					if err != nil {
-						log.Printf("Failed to upload to drive: %v", err)
-						if errors.Is(err, ErrOauth2TokenNotFound) {
-							if _, err = bot.ReplyMessage(
-								&messaging_api.ReplyMessageRequest{
-									ReplyToken: e.ReplyToken,
-									Messages: []messaging_api.MessageInterface{
-										&messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first.",
-											QuickReply: &messaging_api.QuickReply{
-												Items: []messaging_api.QuickReplyItem{
-													{
-														Action: &messaging_api.MessageAction{
-															Label: "Connect Google Drive",
-															Text:  "/connect_drive",
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							); err != nil {
-								log.Print(err)
-							}
-						}
-						return
-					}
-
-					if _, err = bot.ReplyMessage(
-						&messaging_api.ReplyMessageRequest{
-							ReplyToken: e.ReplyToken,
-							Messages: []messaging_api.MessageInterface{
-								&messaging_api.TextMessage{
-									Text: "File uploaded to Google Drive: " + file.WebViewLink,
-									QuickReply: &messaging_api.QuickReply{
-										Items: []messaging_api.QuickReplyItem{
-											{
-												Action: &messaging_api.MessageAction{
-													Label: "查詢最近檔案",
-													Text:  "/recent_files",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					); err != nil {
-						log.Print(err)
-					}
+					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".m4a")
 				case webhook.FileMessageContent:
-					content, err := blob.GetMessageContent(message.Id)
-					if err != nil {
-						log.Printf("Failed to get message content: %v", err)
-						return
-					}
-					defer content.Body.Close()
-					userID := e.Source.(webhook.UserSource).UserId
-					file, err := uploadToDrive(content.Body, message.FileName, userID)
-					if err != nil {
-						log.Printf("Failed to upload to drive: %v", err)
-						if errors.Is(err, ErrOauth2TokenNotFound) {
-							if _, err = bot.ReplyMessage(
-								&messaging_api.ReplyMessageRequest{
-									ReplyToken: e.ReplyToken,
-									Messages: []messaging_api.MessageInterface{
-										&messaging_api.TextMessage{
-											Text: "Please connect your Google Drive account first.",
-											QuickReply: &messaging_api.QuickReply{
-												Items: []messaging_api.QuickReplyItem{
-													{
-														Action: &messaging_api.MessageAction{
-															Label: "Connect Google Drive",
-															Text:  "/connect_drive",
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							); err != nil {
-								log.Print(err)
-							}
-						}
-						return
-					}
-
-					if _, err = bot.ReplyMessage(
-						&messaging_api.ReplyMessageRequest{
-							ReplyToken: e.ReplyToken,
-							Messages: []messaging_api.MessageInterface{
-								&messaging_api.TextMessage{
-									Text: "File uploaded to Google Drive: " + file.WebViewLink,
-									QuickReply: &messaging_api.QuickReply{
-										Items: []messaging_api.QuickReplyItem{
-											{
-												Action: &messaging_api.MessageAction{
-													Label: "查詢最近檔案",
-													Text:  "/recent_files",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					); err != nil {
-						log.Print(err)
-					}
+					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, message.FileName)
 				case webhook.MemberJoinedEvent:
 					if s, ok := e.Source.(*webhook.GroupSource); ok {
 						log.Printf("Member joined: %s\n", s.UserId)
@@ -790,4 +558,75 @@ func revokeGoogleToken(ctx context.Context, userID string) error {
 
 	log.Printf("Successfully revoked and/or deleted token for user %s", userID)
 	return nil
+}
+
+func handleMediaUpload(bot *messaging_api.MessagingApiAPI, blob *messaging_api.MessagingApiBlobAPI, replyToken, userID, messageID, fileName string) {
+	content, err := blob.GetMessageContent(messageID)
+	if err != nil {
+		log.Printf("Failed to get message content: %v", err)
+		return
+	}
+	defer content.Body.Close()
+
+	file, err := uploadToDrive(content.Body, fileName, userID)
+	if err != nil {
+		log.Printf("Failed to upload to drive: %v", err)
+		if errors.Is(err, ErrOauth2TokenNotFound) {
+			sendConnectionPrompt(bot, replyToken)
+		}
+		// Optionally, handle other upload errors with a generic message
+		return
+	}
+
+	sendUploadSuccessReply(bot, replyToken, file.WebViewLink)
+}
+
+func sendUploadSuccessReply(bot *messaging_api.MessagingApiAPI, replyToken, fileURL string) {
+	if _, err := bot.ReplyMessage(
+		&messaging_api.ReplyMessageRequest{
+			ReplyToken: replyToken,
+			Messages: []messaging_api.MessageInterface{
+				&messaging_api.TextMessage{
+					Text: "File uploaded to Google Drive: " + fileURL,
+					QuickReply: &messaging_api.QuickReply{
+						Items: []messaging_api.QuickReplyItem{
+							{
+								Action: &messaging_api.MessageAction{
+									Label: "查詢最近檔案",
+									Text:  "/recent_files",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	); err != nil {
+		log.Print(err)
+	}
+}
+
+func sendConnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken string) {
+	if _, err := bot.ReplyMessage(
+		&messaging_api.ReplyMessageRequest{
+			ReplyToken: replyToken,
+			Messages: []messaging_api.MessageInterface{
+				&messaging_api.TextMessage{
+					Text: "Please connect your Google Drive account first.",
+					QuickReply: &messaging_api.QuickReply{
+						Items: []messaging_api.QuickReplyItem{
+							{
+								Action: &messaging_api.MessageAction{
+									Label: "Connect Google Drive",
+									Text:  "/connect_drive",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	); err != nil {
+		log.Print(err)
+	}
 }

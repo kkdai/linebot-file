@@ -5,6 +5,8 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/kkdai/linebot-file)](https://goreportcard.com/report/github.com/kkdai/linebot-file)
 [![MIT License](https://img.shields.io/badge/license-Apache2-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/fd567ff2-0589-483e-ae7f-986921c3d303" />
+
 ## ✨ 主要功能
 
 *   **多媒體檔案備份**：支援備份圖片、影片、音訊和一般檔案。

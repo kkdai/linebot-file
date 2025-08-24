@@ -694,6 +694,15 @@ func isGoogleAuthError(err error) bool {
 		// 401 Unauthorized or 403 Forbidden are strong indicators of a token issue.
 		return apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusForbidden
 	}
+	// The oauth2 library can return a "cannot fetch token" error with a 400 or 401
+	// when the refresh token is invalid (e.g., "invalid_grant").
+	if err != nil {
+		errorStr := err.Error()
+		// Use a simple prefix check to avoid importing the "strings" package.
+		if len(errorStr) >= 18 && errorStr[:18] == "cannot fetch token" {
+			return true
+		}
+	}
 	return false
 }
 

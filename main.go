@@ -309,6 +309,53 @@ func main() {
 							log.Print(err)
 						}
 						return
+					} else if message.Text == "/reconnect" {
+						userID := e.Source.(webhook.UserSource).UserId
+
+						// 1. Revoke existing token. We log errors but proceed anyway.
+						err := revokeGoogleToken(ctx, userID)
+						if err != nil && !errors.Is(err, ErrOauth2TokenNotFound) {
+							log.Printf("Error during token revocation in /reconnect for user %s: %v", userID, err)
+						}
+
+						// 2. Start new connection flow (same as /connect_drive)
+						state := generateState()
+						_, err = firestoreClient.Collection(stateCollection).Doc(state).Set(ctx, map[string]interface{}{
+							"user_id":    userID,
+							"created_at": time.Now(),
+						})
+						if err != nil {
+							log.Printf("Failed to save state to firestore for reconnect: %v", err)
+							// Reply with an error message
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										&messaging_api.TextMessage{
+											Text: "An error occurred while trying to reconnect. Please try '/connect_drive' manually.",
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+							return
+						}
+
+						url := googleOauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+						if _, err = bot.ReplyMessage(
+							&messaging_api.ReplyMessageRequest{
+								ReplyToken: e.ReplyToken,
+								Messages: []messaging_api.MessageInterface{
+									&messaging_api.TextMessage{
+										Text: "Please re-authorize this app to upload files to your Google Drive: " + url,
+									},
+								},
+							},
+						); err != nil {
+							log.Print(err)
+						}
+						return
 					}
 
 					if _, err = bot.ReplyMessage(
@@ -694,20 +741,24 @@ func isGoogleAuthError(err error) bool {
 		// 401 Unauthorized or 403 Forbidden are strong indicators of a token issue.
 		return apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusForbidden
 	}
-	// The oauth2 library can return a "cannot fetch token" error with a 400 or 401
-	// when the refresh token is invalid (e.g., "invalid_grant").
+
+	// The oauth2 library can return an error containing "invalid_grant"
+	// when the refresh token is expired, revoked, or otherwise invalid.
 	if err != nil {
 		errorStr := err.Error()
-		// Use a simple prefix check to avoid importing the "strings" package.
-		if len(errorStr) >= 18 && errorStr[:18] == "cannot fetch token" {
-			return true
+		// Basic substring check to avoid importing "strings"
+		for i := 0; i <= len(errorStr)-13; i++ {
+			if errorStr[i:i+13] == "invalid_grant" {
+				return true
+			}
 		}
 	}
+
 	return false
 }
 
 func sendReconnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken string) {
-	message := "您的 Google Drive 授權似乎已失效。\n請先中斷連線，然後再重新連線一次。"
+	message := "您的 Google Drive 授權似乎已失效。\n請執行 /reconnect 指令來重新連線。"
 	if _, err := bot.ReplyMessage(
 		&messaging_api.ReplyMessageRequest{
 			ReplyToken: replyToken,
@@ -718,14 +769,8 @@ func sendReconnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken strin
 						Items: []messaging_api.QuickReplyItem{
 							{
 								Action: &messaging_api.MessageAction{
-									Label: "中斷連線",
-									Text:  "/disconnect_drive",
-								},
-							},
-							{
-								Action: &messaging_api.MessageAction{
 									Label: "重新連線",
-									Text:  "/connect_drive",
+									Text:  "/reconnect",
 								},
 							},
 						},

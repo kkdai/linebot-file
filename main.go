@@ -30,6 +30,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -173,6 +174,8 @@ func main() {
 								); err != nil {
 									log.Print(err)
 								}
+							} else if isGoogleAuthError(err) {
+								sendReconnectionPrompt(bot, e.ReplyToken)
 							} else {
 								log.Printf("Failed to get drive service: %v", err)
 							}
@@ -182,6 +185,9 @@ func main() {
 						files, err := getRecentFiles(srv, 5)
 						if err != nil {
 							log.Printf("Failed to get recent files: %v", err)
+							if isGoogleAuthError(err) {
+								sendReconnectionPrompt(bot, e.ReplyToken)
+							}
 							// Optionally reply with an error message
 							return
 						}
@@ -614,6 +620,8 @@ func handleMediaUpload(bot *messaging_api.MessagingApiAPI, blob *messaging_api.M
 		log.Printf("Failed to upload to drive: %v", err)
 		if errors.Is(err, ErrOauth2TokenNotFound) {
 			sendConnectionPrompt(bot, replyToken)
+		} else if isGoogleAuthError(err) {
+			sendReconnectionPrompt(bot, replyToken)
 		}
 		// Optionally, handle other upload errors with a generic message
 		return
@@ -665,6 +673,49 @@ func sendConnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken string)
 							{
 								Action: &messaging_api.MessageAction{
 									Label: "Connect Google Drive",
+									Text:  "/connect_drive",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	); err != nil {
+		log.Print(err)
+	}
+}
+
+// isGoogleAuthError checks if the error from a Google API call is due to
+// an authentication/authorization issue (e.g., expired or revoked token).
+func isGoogleAuthError(err error) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		// 401 Unauthorized or 403 Forbidden are strong indicators of a token issue.
+		return apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusForbidden
+	}
+	return false
+}
+
+func sendReconnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken string) {
+	message := "您的 Google Drive 授權似乎已失效。\n請先中斷連線，然後再重新連線一次。"
+	if _, err := bot.ReplyMessage(
+		&messaging_api.ReplyMessageRequest{
+			ReplyToken: replyToken,
+			Messages: []messaging_api.MessageInterface{
+				&messaging_api.TextMessage{
+					Text: message,
+					QuickReply: &messaging_api.QuickReply{
+						Items: []messaging_api.QuickReplyItem{
+							{
+								Action: &messaging_api.MessageAction{
+									Label: "中斷連線",
+									Text:  "/disconnect_drive",
+								},
+							},
+							{
+								Action: &messaging_api.MessageAction{
+									Label: "重新連線",
 									Text:  "/connect_drive",
 								},
 							},

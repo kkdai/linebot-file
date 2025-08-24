@@ -30,9 +30,11 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 )
 
 var (
@@ -148,31 +150,32 @@ func main() {
 					} else if message.Text == "/recent_files" {
 						userID := e.Source.(webhook.UserSource).UserId
 						srv, err := getGoogleDriveService(userID)
-						if err != nil {
-							// Handle not connected error
-							if errors.Is(err, ErrOauth2TokenNotFound) {
-								if _, err = bot.ReplyMessage(
-									&messaging_api.ReplyMessageRequest{
-										ReplyToken: e.ReplyToken,
-										Messages: []messaging_api.MessageInterface{
-											&messaging_api.TextMessage{
-												Text: "Please connect your Google Drive account first.",
-												QuickReply: &messaging_api.QuickReply{
-													Items: []messaging_api.QuickReplyItem{
-														{
-															Action: &messaging_api.MessageAction{
-																Label: "Connect Google Drive",
-																Text:  "/connect_drive",
-															},
+							if err != nil {
+								// Handle not connected error
+								if errors.Is(err, ErrOauth2TokenNotFound) {
+									if _, err = bot.ReplyMessage(
+										&messaging_api.ReplyMessageRequest{
+											ReplyToken: e.ReplyToken,
+											Messages: []messaging_api.MessageInterface{
+												&messaging_api.TextMessage{
+													Text: "Please connect your Google Drive account first.",
+													QuickReply: &messaging_api.QuickReply{
+														Items: []messaging_api.QuickReplyItem{
+															{
+																Action: &messaging_api.MessageAction{
+																			Label: "Connect Google Drive",
+																			Text:  "/connect_drive",
+																			},
+																},
 														},
-													},
 												},
 											},
 										},
-									},
-								); err != nil {
-									log.Print(err)
-								}
+									);
+														log.Print(err)
+										}
+									} else if isGoogleAuthError(err) {
+								sendReconnectionPrompt(bot, e.ReplyToken)
 							} else {
 								log.Printf("Failed to get drive service: %v", err)
 							}
@@ -180,101 +183,104 @@ func main() {
 						}
 
 						files, err := getRecentFiles(srv, 5)
-						if err != nil {
-							log.Printf("Failed to get recent files: %v", err)
-							// Optionally reply with an error message
-							return
-						}
+							if err != nil {
+								log.Printf("Failed to get recent files: %v", err)
+								if isGoogleAuthError(err) {
+									sendReconnectionPrompt(bot, e.ReplyToken)
+								}
+								// Optionally reply with an error message
+								return
+							}
 
-						if len(files) == 0 {
+							if len(files) == 0 {
+								if _, err = bot.ReplyMessage(
+									&messaging_api.ReplyMessageRequest{
+										ReplyToken: e.ReplyToken,
+										Messages: []messaging_api.MessageInterface{
+											&messaging_api.TextMessage{
+												Text: "You haven't uploaded any files yet.",
+											},
+										},
+									},
+								);
+										log.Print(err)
+									}
+									return
+								}
+
+							var bubbles []messaging_api.FlexBubble
+							for _, file := range files {
+								bubble := messaging_api.FlexBubble{
+									Body: &messaging_api.FlexBox{
+										Layout: "vertical",
+										Contents: []messaging_api.FlexComponentInterface{
+											&messaging_api.FlexText{
+												Text:   "Recent Upload",
+												Weight: "bold",
+												Size:   "sm",
+												Color:  "#1DB446",
+											},
+											&messaging_api.FlexText{
+												Text:   file.Name,
+												Weight: "bold",
+												Size:   "xl",
+												Margin: "md",
+												Wrap:   true,
+											},
+										},
+									},
+									Footer: &messaging_api.FlexBox{
+										Layout:  "vertical",
+										Spacing: "sm",
+										Contents: []messaging_api.FlexComponentInterface{
+											&messaging_api.FlexButton{
+												Style:  "link",
+												Height: "sm",
+												Action: &messaging_api.UriAction{
+														Label: "Open in Drive",
+														Uri:   file.WebViewLink,
+												},
+											},
+										},
+									},
+								}
+								bubbles = append(bubbles, bubble)
+							}
+
+							carousel := &messaging_api.FlexCarousel{
+									Contents: bubbles,
+							}
+
 							if _, err = bot.ReplyMessage(
-								&messaging_api.ReplyMessageRequest{
-									ReplyToken: e.ReplyToken,
-									Messages: []messaging_api.MessageInterface{
-										&messaging_api.TextMessage{
-											Text: "You haven't uploaded any files yet.",
-										},
-									},
-								},
-							); err != nil {
-								log.Print(err)
-							}
-							return
-						}
-
-						var bubbles []messaging_api.FlexBubble
-						for _, file := range files {
-							bubble := messaging_api.FlexBubble{
-								Body: &messaging_api.FlexBox{
-									Layout: "vertical",
-									Contents: []messaging_api.FlexComponentInterface{
-										&messaging_api.FlexText{
-											Text:   "Recent Upload",
-											Weight: "bold",
-											Size:   "sm",
-											Color:  "#1DB446",
-										},
-										&messaging_api.FlexText{
-											Text:   file.Name,
-											Weight: "bold",
-											Size:   "xl",
-											Margin: "md",
-											Wrap:   true,
-										},
-									},
-								},
-								Footer: &messaging_api.FlexBox{
-									Layout:  "vertical",
-									Spacing: "sm",
-									Contents: []messaging_api.FlexComponentInterface{
-										&messaging_api.FlexButton{
-											Style:  "link",
-											Height: "sm",
-											Action: &messaging_api.UriAction{
-												Label: "Open in Drive",
-												Uri:   file.WebViewLink,
-											},
-										},
-									},
-								},
-							}
-							bubbles = append(bubbles, bubble)
-						}
-
-						carousel := &messaging_api.FlexCarousel{
-							Contents: bubbles,
-						}
-
-						if _, err = bot.ReplyMessage(
-							&messaging_api.ReplyMessageRequest{
-								ReplyToken: e.ReplyToken,
-								Messages: []messaging_api.MessageInterface{
-									&messaging_api.FlexMessage{
-										AltText:  "Here are your recent files",
-										Contents: carousel,
-										QuickReply: &messaging_api.QuickReply{
-											Items: []messaging_api.QuickReplyItem{
-												{
-													Action: &messaging_api.MessageAction{
-														Label: "查詢最近檔案",
-														Text:  "/recent_files",
+									&messaging_api.ReplyMessageRequest{
+										ReplyToken: e.ReplyToken,
+										Messages: []messaging_api.MessageInterface{
+											&messaging_api.FlexMessage{
+												AltText:  "Here are your recent files",
+												Contents: carousel,
+												QuickReply: &messaging_api.QuickReply{
+													Items: []messaging_api.QuickReplyItem{
+														{
+															Action: &messaging_api.MessageAction{
+																		Label: "查詢最近檔案",
+																		Text:  "/recent_files",
+																		},
+															},
+														{
+															Action: &messaging_api.MessageAction{
+																		Label: "中斷連線",
+																		Text:  "/disconnect_drive",
+																		},
+															},
 													},
 												},
-												{
-													Action: &messaging_api.MessageAction{
-														Label: "中斷連線",
-														Text:  "/disconnect_drive",
-													},
-												},
-											},
 										},
 									},
-								},
-							},
-						); err != nil {
-							log.Print(err)
+								);
+										log.Print(err)
+								}
+								return
 						}
-						return
 					} else if message.Text == "/disconnect_drive" {
 						userID := e.Source.(webhook.UserSource).UserId
 						err := revokeGoogleToken(ctx, userID)
@@ -290,86 +296,88 @@ func main() {
 							replyText = "Successfully disconnected from Google Drive."
 						}
 
-						if _, err = bot.ReplyMessage(
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										&messaging_api.TextMessage{
+											Text: replyText,
+										},
+									},
+								},
+							);
+								log.Print(err)
+							}
+							return
+					}
+
+					if _, err = bot.ReplyMessage(
 							&messaging_api.ReplyMessageRequest{
 								ReplyToken: e.ReplyToken,
 								Messages: []messaging_api.MessageInterface{
 									&messaging_api.TextMessage{
-										Text: replyText,
+										Text: message.Text,
 									},
 								},
 							},
-						); err != nil {
-							log.Print(err)
-						}
-						return
-					}
-
-					if _, err = bot.ReplyMessage(
-						&messaging_api.ReplyMessageRequest{
-							ReplyToken: e.ReplyToken,
-							Messages: []messaging_api.MessageInterface{
-								&messaging_api.TextMessage{
-									Text: message.Text,
-								},
-							},
-						},
-					); err != nil {
-						log.Print(err)
-					} else {
-						log.Println("Sent text reply.")
-					}
-				case webhook.StickerMessageContent:
-					replyMessage := fmt.Sprintf(
-						"貼圖訊息: sticker id is %s, stickerResourceType is %s", message.StickerId, message.StickerResourceType)
-					if _, err = bot.ReplyMessage(
-						&messaging_api.ReplyMessageRequest{
-							ReplyToken: e.ReplyToken,
-							Messages: []messaging_api.MessageInterface{
-								&messaging_api.TextMessage{
-									Text: replyMessage,
-								},
-							},
-						}); err != nil {
-						log.Print(err)
-					} else {
-						log.Println("Sent sticker reply.")
-					}
-				case webhook.ImageMessageContent:
-					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".jpg")
-				case webhook.VideoMessageContent:
-					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".mp4")
-				case webhook.AudioMessageContent:
-					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".m4a")
-				case webhook.FileMessageContent:
-					handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, message.FileName)
-				case webhook.MemberJoinedEvent:
-					if s, ok := e.Source.(*webhook.GroupSource); ok {
-						log.Printf("Member joined: %s\n", s.UserId)
-					}
-				case webhook.MemberLeftEvent:
-					if s, ok := e.Source.(*webhook.GroupSource); ok {
-						log.Printf("Member left: %s\n", s.UserId)
-					}
-				case webhook.FollowEvent:
-					if s, ok := e.Source.(*webhook.UserSource); ok {
-						log.Printf("Follow event for user: %s", s.UserId)
-						if _, err := bot.LinkRichMenuIdToUser(s.UserId, richMenuConnect); err != nil {
-							log.Printf("Failed to link rich menu for new user %s: %v", s.UserId, err)
-						}
-					}
+						);
+							if err != nil {
+								log.Print(err)
+							} else {
+								log.Println("Sent text reply.")
+							}
+								case webhook.StickerMessageContent:
+							replyMessage := fmt.Sprintf(
+										"貼圖訊息: sticker id is %s, stickerResourceType is %s", message.StickerId, message.StickerResourceType)
+										if _, err = bot.ReplyMessage(
+											&messaging_api.ReplyMessageRequest{
+												ReplyToken: e.ReplyToken,
+												Messages: []messaging_api.MessageInterface{
+													&messaging_api.TextMessage{
+														Text: replyMessage,
+													},
+												},
+											},
+										);
+												log.Print(err)
+										} else {
+											log.Println("Sent sticker reply.")
+										}
+										case webhook.ImageMessageContent:
+								handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".jpg")
+										case webhook.VideoMessageContent:
+								handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".mp4")
+										case webhook.AudioMessageContent:
+								handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, "line-bot-upload-"+message.Id+".m4a")
+										case webhook.FileMessageContent:
+								handleMediaUpload(bot, blob, e.ReplyToken, e.Source.(webhook.UserSource).UserId, message.Id, message.FileName)
+										case webhook.MemberJoinedEvent:
+											if s, ok := e.Source.(*webhook.GroupSource); ok {
+												log.Printf("Member joined: %s\n", s.UserId)
+											}
+										case webhook.MemberLeftEvent:
+											if s, ok := e.Source.(*webhook.GroupSource); ok {
+												log.Printf("Member left: %s\n", s.UserId)
+											}
+										case webhook.FollowEvent:
+											if s, ok := e.Source.(*webhook.UserSource); ok {
+												log.Printf("Follow event for user: %s", s.UserId)
+													if _, err := bot.LinkRichMenuIdToUser(s.UserId, richMenuConnect); err != nil {
+															log.Printf("Failed to link rich menu for new user %s: %v", s.UserId, err)
+													}
+												}
                 case webhook.BeaconEvent:
                     if s, ok := e.Source.(*webhook.UserSource); ok {
                         log.Printf("Beacon event: %s\n", s.UserId)
                     }
-				default:
-					log.Printf("Unsupported message content: %T\n", e.Message)
+							default:
+								log.Printf("Unsupported message content: %T\n", e.Message)
+								}
+						default:
+							log.Printf("Unsupported message: %T\n", event)
+						}
 				}
-			default:
-				log.Printf("Unsupported message: %T\n", event)
-			}
-		}
-		w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusOK)
 	})
 
 	http.HandleFunc("/oauth/callback", oauthCallbackHandler)
@@ -418,7 +426,8 @@ func oauthCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	userID := stateData.UserID
 
 	// 2. Exchange authorization code for a token
-	token, err := googleOauthConfig.Exchange(ctx, code)
+
+token, err := googleOauthConfig.Exchange(ctx, code)
 	if err != nil {
 		log.Printf("Failed to exchange token: %v", err)
 		http.Error(w, "Failed to exchange token.", http.StatusInternalServerError)
@@ -614,6 +623,8 @@ func handleMediaUpload(bot *messaging_api.MessagingApiAPI, blob *messaging_api.M
 		log.Printf("Failed to upload to drive: %v", err)
 		if errors.Is(err, ErrOauth2TokenNotFound) {
 			sendConnectionPrompt(bot, replyToken)
+		} else if isGoogleAuthError(err) {
+			sendReconnectionPrompt(bot, replyToken)
 		}
 		// Optionally, handle other upload errors with a generic message
 		return
@@ -624,56 +635,98 @@ func handleMediaUpload(bot *messaging_api.MessagingApiAPI, blob *messaging_api.M
 
 func sendUploadSuccessReply(bot *messaging_api.MessagingApiAPI, replyToken, fileURL string) {
 	if _, err := bot.ReplyMessage(
-		&messaging_api.ReplyMessageRequest{
-			ReplyToken: replyToken,
-			Messages: []messaging_api.MessageInterface{
-				&messaging_api.TextMessage{
-					Text: "File uploaded to Google Drive: " + fileURL,
-					QuickReply: &messaging_api.QuickReply{
-						Items: []messaging_api.QuickReplyItem{
-							{
-								Action: &messaging_api.MessageAction{
-									Label: "查詢最近檔案",
-									Text:  "/recent_files",
+			&messaging_api.ReplyMessageRequest{
+				ReplyToken: replyToken,
+				Messages: []messaging_api.MessageInterface{
+					&messaging_api.TextMessage{
+						Text: "File uploaded to Google Drive: " + fileURL,
+						QuickReply: &messaging_api.QuickReply{
+							Items: []messaging_api.QuickReplyItem{
+								{
+									Action: &messaging_api.MessageAction{
+										Label: "查詢最近檔案",
+										Text:  "/recent_files",
+									},
 								},
-							},
-							{
-								Action: &messaging_api.MessageAction{
-									Label: "中斷連線",
-									Text:  "/disconnect_drive",
+								{
+									Action: &messaging_api.MessageAction{
+										Label: "中斷連線",
+										Text:  "/disconnect_drive",
+									},
+								},
+									},
 								},
 							},
 						},
-					},
-				},
-			},
-		},
-	); err != nil {
-		log.Print(err)
-	}
+					);
+							log.Print(err)
+				}
 }
 
 func sendConnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken string) {
 	if _, err := bot.ReplyMessage(
-		&messaging_api.ReplyMessageRequest{
-			ReplyToken: replyToken,
-			Messages: []messaging_api.MessageInterface{
-				&messaging_api.TextMessage{
-					Text: "Please connect your Google Drive account first.",
-					QuickReply: &messaging_api.QuickReply{
-						Items: []messaging_api.QuickReplyItem{
-							{
-								Action: &messaging_api.MessageAction{
-									Label: "Connect Google Drive",
-									Text:  "/connect_drive",
+			&messaging_api.ReplyMessageRequest{
+				ReplyToken: replyToken,
+				Messages: []messaging_api.MessageInterface{
+					&messaging_api.TextMessage{
+						Text: "Please connect your Google Drive account first.",
+						QuickReply: &messaging_api.QuickReply{
+							Items: []messaging_api.QuickReplyItem{
+								{
+									Action: &messaging_api.MessageAction{
+										Label: "Connect Google Drive",
+										Text:  "/connect_drive",
+									},
 								},
+									},
+							},
+						},
+					},
+				);
+				log.Print(err)
+	}
+}
+
+// isGoogleAuthError checks if the error from a Google API call is due to
+// an authentication/authorization issue (e.g., expired or revoked token).
+func isGoogleAuthError(err error) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		// 401 Unauthorized or 403 Forbidden are strong indicators of a token issue.
+		return apiErr.Code == http.StatusUnauthorized || apiErr.Code == http.StatusForbidden
+	}
+	return false
+}
+
+func sendReconnectionPrompt(bot *messaging_api.MessagingApiAPI, replyToken string) {
+	message := "您的 Google Drive 授權似乎已失效。\n請先中斷連線，然後再重新連線一次。"
+	if _, err := bot.ReplyMessage(
+			&messaging_api.ReplyMessageRequest{
+				ReplyToken: replyToken,
+				Messages: []messaging_api.MessageInterface{
+					&messaging_api.TextMessage{
+						Text: message,
+						QuickReply: &messaging_api.QuickReply{
+							Items: []messaging_api.QuickReplyItem{
+								{
+									Action: &messaging_api.MessageAction{
+										Label: "中斷連線",
+										Text:  "/disconnect_drive",
+									},
+								},
+								{
+									Action: &messaging_api.MessageAction{
+										Label: "重新連線",
+										Text:  "/connect_drive",
+									},
+								},
+									},
 							},
 						},
 					},
 				},
 			},
-		},
-	); err != nil {
-		log.Print(err)
+		);
+			log.Print(err)
 	}
 }

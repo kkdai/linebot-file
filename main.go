@@ -356,6 +356,174 @@ func main() {
 							log.Print(err)
 						}
 						return
+					} else if len(message.Text) > 13 && message.Text[:13] == "/search_files" {
+						userID := e.Source.(webhook.UserSource).UserId
+						searchQuery := ""
+						if len(message.Text) > 14 {
+							searchQuery = message.Text[14:] // Extract search query after "/search_files "
+						}
+
+						if searchQuery == "" {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										&messaging_api.TextMessage{
+											Text: "請輸入要搜尋的檔案名稱，例如：/search_files 照片",
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+							return
+						}
+
+						srv, err := getGoogleDriveService(userID)
+						if err != nil {
+							if errors.Is(err, ErrOauth2TokenNotFound) {
+								if _, err = bot.ReplyMessage(
+									&messaging_api.ReplyMessageRequest{
+										ReplyToken: e.ReplyToken,
+										Messages: []messaging_api.MessageInterface{
+											&messaging_api.TextMessage{
+												Text: "請先連接您的 Google Drive 帳號。",
+												QuickReply: &messaging_api.QuickReply{
+													Items: []messaging_api.QuickReplyItem{
+														{
+															Action: &messaging_api.MessageAction{
+																Label: "連接 Google Drive",
+																Text:  "/connect_drive",
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								); err != nil {
+									log.Print(err)
+								}
+							} else if isGoogleAuthError(err) {
+								sendReconnectionPrompt(bot, e.ReplyToken)
+							} else {
+								log.Printf("Failed to get drive service: %v", err)
+							}
+							return
+						}
+
+						files, err := searchFilesInDrive(srv, searchQuery)
+						if err != nil {
+							log.Printf("Failed to search files: %v", err)
+							if isGoogleAuthError(err) {
+								sendReconnectionPrompt(bot, e.ReplyToken)
+							} else {
+								if _, err = bot.ReplyMessage(
+									&messaging_api.ReplyMessageRequest{
+										ReplyToken: e.ReplyToken,
+										Messages: []messaging_api.MessageInterface{
+											&messaging_api.TextMessage{
+												Text: "搜尋檔案時發生錯誤，請稍後再試。",
+											},
+										},
+									},
+								); err != nil {
+									log.Print(err)
+								}
+							}
+							return
+						}
+
+						if len(files) == 0 {
+							if _, err = bot.ReplyMessage(
+								&messaging_api.ReplyMessageRequest{
+									ReplyToken: e.ReplyToken,
+									Messages: []messaging_api.MessageInterface{
+										&messaging_api.TextMessage{
+											Text: fmt.Sprintf("找不到包含「%s」的檔案。", searchQuery),
+										},
+									},
+								},
+							); err != nil {
+								log.Print(err)
+							}
+							return
+						}
+
+						var bubbles []messaging_api.FlexBubble
+						for _, file := range files {
+							bubble := messaging_api.FlexBubble{
+								Body: &messaging_api.FlexBox{
+									Layout: "vertical",
+									Contents: []messaging_api.FlexComponentInterface{
+										&messaging_api.FlexText{
+											Text:   "搜尋結果",
+											Weight: "bold",
+											Size:   "sm",
+											Color:  "#1DB446",
+										},
+										&messaging_api.FlexText{
+											Text:   file.Name,
+											Weight: "bold",
+											Size:   "xl",
+											Margin: "md",
+											Wrap:   true,
+										},
+									},
+								},
+								Footer: &messaging_api.FlexBox{
+									Layout:  "vertical",
+									Spacing: "sm",
+									Contents: []messaging_api.FlexComponentInterface{
+										&messaging_api.FlexButton{
+											Style:  "link",
+											Height: "sm",
+											Action: &messaging_api.UriAction{
+												Label: "在 Drive 中開啟",
+												Uri:   file.WebViewLink,
+											},
+										},
+									},
+								},
+							}
+							bubbles = append(bubbles, bubble)
+						}
+
+						carousel := &messaging_api.FlexCarousel{
+							Contents: bubbles,
+						}
+
+						altText := fmt.Sprintf("找到 %d 個包含「%s」的檔案", len(files), searchQuery)
+						if _, err = bot.ReplyMessage(
+							&messaging_api.ReplyMessageRequest{
+								ReplyToken: e.ReplyToken,
+								Messages: []messaging_api.MessageInterface{
+									&messaging_api.FlexMessage{
+										AltText:  altText,
+										Contents: carousel,
+										QuickReply: &messaging_api.QuickReply{
+											Items: []messaging_api.QuickReplyItem{
+												{
+													Action: &messaging_api.MessageAction{
+														Label: "查詢最近檔案",
+														Text:  "/recent_files",
+													},
+												},
+												{
+													Action: &messaging_api.MessageAction{
+														Label: "中斷連線",
+														Text:  "/disconnect_drive",
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						); err != nil {
+							log.Print(err)
+						}
+						return
 					}
 
 					if _, err = bot.ReplyMessage(
@@ -596,6 +764,86 @@ func getRecentFiles(srv *drive.Service, count int64) ([]*drive.File, error) {
 	}
 
 	return r.Files, nil
+}
+
+func searchFilesInDrive(srv *drive.Service, searchQuery string) ([]*drive.File, error) {
+	// First, find the main folder. If it doesn't exist, there are no files to search.
+	mainFolderID, err := findOrCreateFolder(srv, "LINE Bot Uploads", "root")
+	if err != nil {
+		return nil, fmt.Errorf("could not find or create the main upload folder: %w", err)
+	}
+
+	// Recursive search in all subfolders within "LINE Bot Uploads"
+	// Using contains operator for partial filename matching
+	query := fmt.Sprintf("'%s' in parents and trashed=false and name contains '%s'", mainFolderID, searchQuery)
+	
+	// Also search in month subfolders (YYYY-MM format)
+	files := []*drive.File{}
+	
+	// First search in the main folder
+	r, err := srv.Files.List().
+		Q(query).
+		PageSize(20). // Limit to reasonable number of results
+		OrderBy("createdTime desc").
+		Fields("files(id, name, webViewLink, createdTime)").
+		Do()
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to search files in main folder: %w", err)
+	}
+	
+	files = append(files, r.Files...)
+	
+	// Then search in all month subfolders
+	subfolderQuery := fmt.Sprintf("'%s' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'", mainFolderID)
+	subfolders, err := srv.Files.List().
+		Q(subfolderQuery).
+		Fields("files(id, name)").
+		Do()
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subfolders: %w", err)
+	}
+	
+	// Search in each subfolder
+	for _, subfolder := range subfolders.Files {
+		subfolderSearchQuery := fmt.Sprintf("'%s' in parents and trashed=false and name contains '%s'", subfolder.Id, searchQuery)
+		subfolderResults, err := srv.Files.List().
+			Q(subfolderSearchQuery).
+			PageSize(20).
+			OrderBy("createdTime desc").
+			Fields("files(id, name, webViewLink, createdTime)").
+			Do()
+		
+		if err != nil {
+			// Log error but continue searching other folders
+			log.Printf("Failed to search in subfolder %s: %v", subfolder.Name, err)
+			continue
+		}
+		
+		files = append(files, subfolderResults.Files...)
+	}
+	
+	// Remove duplicates and sort by creation time (newest first)
+	uniqueFiles := make(map[string]*drive.File)
+	for _, file := range files {
+		if _, exists := uniqueFiles[file.Id]; !exists {
+			uniqueFiles[file.Id] = file
+		}
+	}
+	
+	// Convert back to slice
+	result := make([]*drive.File, 0, len(uniqueFiles))
+	for _, file := range uniqueFiles {
+		result = append(result, file)
+	}
+	
+	// Limit results to 10 files maximum
+	if len(result) > 10 {
+		result = result[:10]
+	}
+	
+	return result, nil
 }
 
 func revokeGoogleToken(ctx context.Context, userID string) error {

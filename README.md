@@ -13,6 +13,7 @@
 *   **智慧資料夾整理**：自動在您的 Google Drive 建立 `LINE Bot Uploads` 資料夾，並以年月 (`YYYY-MM`) 為單位建立子資料夾存放檔案，保持雲端硬碟整潔。
 *   **安全帳號連結**：使用 Google OAuth 2.0 進行授權，安全可靠。
 *   **查詢最近檔案**：透過 `/recent_files` 指令，快速查看最近上傳的 5 個檔案。
+*   **檔案搜尋**：透過 `/search_files <關鍵字>` 或 `/q <關鍵字>` 指令，搜尋 Google Drive 中包含特定關鍵字的檔案。
 *   **完整的連線控制**：使用者可以隨時透過 `/disconnect_drive` 指令中斷連線並撤銷授權。
 
 ## 🚀 部署到 Google Cloud Platform

@@ -356,11 +356,18 @@ func main() {
 							log.Print(err)
 						}
 						return
-					} else if len(message.Text) > 13 && message.Text[:13] == "/search_files" {
+					} else if (len(message.Text) > 13 && message.Text[:13] == "/search_files") || (len(message.Text) > 2 && message.Text[:2] == "/q") {
 						userID := e.Source.(webhook.UserSource).UserId
 						searchQuery := ""
-						if len(message.Text) > 14 {
-							searchQuery = message.Text[14:] // Extract search query after "/search_files "
+						commandPrefixLen := 0
+						if len(message.Text) > 13 && message.Text[:13] == "/search_files" {
+							commandPrefixLen = 14 // Length of "/search_files "
+						} else if len(message.Text) > 2 && message.Text[:2] == "/q" {
+							commandPrefixLen = 3 // Length of "/q "
+						}
+
+						if len(message.Text) > commandPrefixLen {
+							searchQuery = message.Text[commandPrefixLen:]
 						}
 
 						if searchQuery == "" {

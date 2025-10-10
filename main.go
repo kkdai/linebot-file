@@ -22,6 +22,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -356,11 +357,13 @@ func main() {
 							log.Print(err)
 						}
 						return
-					} else if len(message.Text) > 13 && message.Text[:13] == "/search_files" {
+					} else if strings.HasPrefix(message.Text, "/search_files") || strings.HasPrefix(message.Text, "/q") {
 						userID := e.Source.(webhook.UserSource).UserId
-						searchQuery := ""
-						if len(message.Text) > 14 {
-							searchQuery = message.Text[14:] // Extract search query after "/search_files "
+						var searchQuery string
+						if strings.HasPrefix(message.Text, "/search_files") {
+							searchQuery = strings.TrimSpace(strings.TrimPrefix(message.Text, "/search_files"))
+						} else {
+							searchQuery = strings.TrimSpace(strings.TrimPrefix(message.Text, "/q"))
 						}
 
 						if searchQuery == "" {

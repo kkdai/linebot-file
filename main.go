@@ -65,10 +65,19 @@ func main() {
 	richMenuConnect = cmp.Or(os.Getenv("RICH_MENU_CONNECT"), defaultRichMenuConnect)
 	richMenuMain = cmp.Or(os.Getenv("RICH_MENU_MAIN"), defaultRichMenuMain)
 
-	if bot, err = messaging_api.NewMessagingApiAPI(accessToken); err != nil {
+	// The SDK defaults both clients to http.DefaultClient, which has no
+	// timeout, and its generated methods take no context — so a stalled LINE
+	// endpoint would block the handler indefinitely. Inject clients that time
+	// out instead. Do not reach for the SDK's WithContext here: it mutates the
+	// shared client, so concurrent handlers would race on it.
+	if bot, err = messaging_api.NewMessagingApiAPI(accessToken,
+		messaging_api.WithHTTPClient(&http.Client{Timeout: lineAPITimeout}),
+	); err != nil {
 		log.Fatalf("Failed to create LINE messaging client: %v", err)
 	}
-	if blob, err = messaging_api.NewMessagingApiBlobAPI(accessToken); err != nil {
+	if blob, err = messaging_api.NewMessagingApiBlobAPI(accessToken,
+		messaging_api.WithBlobHTTPClient(&http.Client{Timeout: lineBlobTimeout}),
+	); err != nil {
 		log.Fatalf("Failed to create LINE blob client: %v", err)
 	}
 

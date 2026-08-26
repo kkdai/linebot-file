@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -286,5 +287,47 @@ func TestGetRecentFilesLooksInsideMonthFolders(t *testing.T) {
 	}
 	if !strings.Contains(list, "mimeType != '"+folderMimeType+"'") {
 		t.Errorf("Recent files query does not exclude folders: %s", list)
+	}
+}
+
+// A long-lived account accumulates one YYYY-MM folder per month and will
+// eventually exceed a single page of results. Every page has to be collected,
+// otherwise the oldest folders silently drop out of search and recent files.
+func TestUploadParentsPagesThroughAllSubfolders(t *testing.T) {
+	var subfolderRequests int
+
+	srv := newMockDrive(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+
+		if strings.Contains(q, "name='"+rootFolderName+"'") {
+			writeFiles(t, w, &drive.File{Id: "root_id", Name: rootFolderName})
+			return
+		}
+
+		subfolderRequests++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("pageToken") == "" {
+			json.NewEncoder(w).Encode(&drive.FileList{
+				Files:         []*drive.File{{Id: "month_1"}, {Id: "month_2"}},
+				NextPageToken: "page-2",
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(&drive.FileList{
+			Files: []*drive.File{{Id: "month_3"}},
+		})
+	})
+
+	parents, err := uploadParents(t.Context(), srv)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	want := []string{"root_id", "month_1", "month_2", "month_3"}
+	if !slices.Equal(parents, want) {
+		t.Errorf("uploadParents() = %v, want %v", parents, want)
+	}
+	if subfolderRequests != 2 {
+		t.Errorf("Expected 2 subfolder requests (two pages), got %d", subfolderRequests)
 	}
 }

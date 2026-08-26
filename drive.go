@@ -85,15 +85,24 @@ func uploadParents(ctx context.Context, srv *drive.Service) ([]string, error) {
 
 	query := fmt.Sprintf("'%s' in parents and trashed=false and mimeType='%s'",
 		escapeDriveQuery(rootID), folderMimeType)
-	r, err := srv.Files.List().Q(query).Fields("files(id)").Context(ctx).Do()
+
+	parents := []string{rootID}
+	// Page through the result: one YYYY-MM folder is created per month, so a
+	// long-lived account eventually exceeds any single page and the older
+	// folders would silently drop out of every search.
+	err = srv.Files.List().
+		Q(query).
+		PageSize(maxDrivePageSize).
+		Fields("nextPageToken, files(id)").
+		Context(ctx).
+		Pages(ctx, func(page *drive.FileList) error {
+			for _, f := range page.Files {
+				parents = append(parents, f.Id)
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list upload subfolders: %w", err)
-	}
-
-	parents := make([]string, 0, len(r.Files)+1)
-	parents = append(parents, rootID)
-	for _, f := range r.Files {
-		parents = append(parents, f.Id)
 	}
 	return parents, nil
 }

@@ -47,12 +47,25 @@ const (
 	// revokeTimeout bounds the direct call to Google's revocation endpoint.
 	revokeTimeout = 10 * time.Second
 
+	// lineAPITimeout bounds the small LINE Messaging API calls: replies,
+	// pushes and rich menu links. The SDK's methods take no context, so a
+	// timeout on their HTTP client is the only thing that can unblock them.
+	lineAPITimeout = 10 * time.Second
+
+	// lineBlobTimeout bounds downloading a message's content. Videos and
+	// large files need far longer than the plain API calls.
+	lineBlobTimeout = 5 * time.Minute
+
 	// eventTTL is how long a handled webhook event ID is remembered, so a
 	// LINE redelivery does not upload the same file twice.
 	eventTTL = 10 * time.Minute
 
 	recentFileCount  = 5
 	maxSearchResults = 10
+
+	// maxDrivePageSize is the largest page the Drive API will return. Used
+	// when paging through results we need in full.
+	maxDrivePageSize = 1000
 )
 
 // ErrOauth2TokenNotFound means the user has never connected their Drive

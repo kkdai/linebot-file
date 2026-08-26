@@ -70,7 +70,7 @@
 | `oauth_states` 自動清理 | 已在讀取時檢查 `stateTTL`，但過期文件仍留在 Firestore。需設定 Firestore TTL policy | ⬜ Not Started |
 | 結構化日誌 | 改用 `log/slog`，並對應 Cloud Logging 的 severity 欄位 | ⬜ Not Started |
 | Rich Menu 建立腳本 | 取代 README 中一長串手動 `curl` 步驟 | ⬜ Not Started |
-| Drive API 分頁 | 目前只取第一頁，超出 `PageSize` 的結果會被忽略 | ⬜ Not Started |
+| Drive API 分頁 | 月份子資料夾的列舉已改用 `Pages()` 完整分頁。剩下搜尋／查詢結果本身仍只取第一頁，但那是刻意的顯示上限，見 Phase 1 的「搜尋結果分頁」 | ✅ Completed |
 
 ## Phase 3 — 功能擴充
 
@@ -88,6 +88,7 @@
 - **測試覆蓋**：純函式與 Drive 層有測試，webhook handler 缺少端對端測試（需要能注入 LINE client 的介面）。
 - **單一 Drive 帳號**：一個 LINE 使用者只能連結一個 Google 帳號。
 - **無流量限制**：沒有 per-user rate limiting，被濫用時只能靠 Cloud Run 的擴展上限擋。
+- **健康檢查端點不能叫 `/healthz`**：Cloud Run 的前端保留了這個精確路徑，會用自己的 404 攔截，請求不會進到容器。目前用的是 `/health`。
 - **Rich Menu 需手動建立**：ID 目前由 `RICH_MENU_CONNECT` / `RICH_MENU_MAIN` 環境變數提供，選單本身仍需手動以 API 建立。
 
 ---

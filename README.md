@@ -204,7 +204,9 @@ gcloud run deploy linebot-file-service \
 |------|------|------|
 | `POST` | `/` | LINE webhook（簽章由 Channel Secret 驗證） |
 | `GET` | `/oauth/callback` | Google OAuth 回呼 |
-| `GET` | `/healthz` | 健康檢查 |
+| `GET` | `/health` | 健康檢查（不能用 `/healthz`，見下方說明） |
+
+> **為什麼不是 `/healthz`**：Cloud Run 的前端保留了 `/healthz` 這個精確路徑，會用自己的 404 回應，請求根本不會進到容器裡（連 request log 都不會有）。健康檢查端點請避開這個路徑。
 
 ---
 

@@ -76,7 +76,9 @@ func main() {
 	// "/{$}" matches the root path exactly rather than every path below it.
 	mux.HandleFunc("POST /{$}", webhookHandler)
 	mux.HandleFunc("GET /oauth/callback", oauthCallbackHandler)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	// Not "/healthz": Cloud Run's frontend reserves that exact path and
+	// answers it with its own 404, so the request never reaches us.
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 

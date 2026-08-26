@@ -1,7 +1,6 @@
 module github.com/kkdai/linebot-file
 
-// +heroku goVersion go1.21
-go 1.23.0
+go 1.24.0
 
 toolchain go1.24.3
 

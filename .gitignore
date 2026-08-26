@@ -1,2 +1,9 @@
-linebot-file
+# 建置產物
+/linebot-file
+/server
+
+# 系統檔案
 .DS_Store
+
+# 本機環境變數
+.env
